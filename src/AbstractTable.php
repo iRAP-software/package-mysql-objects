@@ -586,7 +586,7 @@ abstract class AbstractTable implements TableInterface
 
         $query =
             "SELECT * " .
-            "FROM `" . $this->getTableName() . "` ";
+            "FROM `" . $this->getTableName() . "` " . $whereClause . " ";
 
         // Add the order by clause if required
         if (isset($parameters['order_column']) && isset($parameters['order_direction']))
