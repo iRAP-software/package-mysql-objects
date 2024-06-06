@@ -22,7 +22,8 @@
     "require": {
         "php": ">=7.4.0",
         "irap/core-libs": "1.1.*",
-        "ramsey/uuid": "4.*"
+        "ramsey/uuid": "4.*",
+        "ext-mysqli": "*"
     },
     "autoload": {
         "psr-4": {

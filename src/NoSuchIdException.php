@@ -6,8 +6,9 @@
 
 namespace iRAP\MysqlObjects;
 
+use Exception;
 
-class NoSuchIdException extends \Exception
+class NoSuchIdException extends Exception
 {
-    
+
 }
