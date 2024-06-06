@@ -243,11 +243,7 @@ abstract class AbstractTable implements TableInterface
         }
 
         $insertId = $db->insert_id;
-        $row['id'] = $insertId;
-        $constructor = $this->getRowObjectConstructorWrapper();
-        $object = $constructor($row);
-        $this->updateCache($object);
-        return $object;
+        return $this->load($insertId);
     }
 
     /**

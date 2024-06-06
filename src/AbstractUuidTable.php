@@ -249,10 +249,7 @@ abstract class AbstractUuidTable implements TableInterface
             throw new Exception("Insert query failed: " . $db->error);
         }
 
-        $constructor = $this->getRowObjectConstructorWrapper();
-        $object = $constructor($row);
-        $this->updateCache($object);
-        return $object;
+        return $this->load($row['uuid']);
     }
 
     /**
