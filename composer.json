@@ -14,7 +14,7 @@
         }
     ],
     "require": {
-        "php": ">=7.0.0",
+        "php": ">=7.4.0",
         "irap/core-libs": "1.1.*",
         "ramsey/uuid": "4.*"
     },
