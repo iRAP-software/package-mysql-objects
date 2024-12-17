@@ -10,118 +10,112 @@
 
 namespace iRAP\MysqlObjects;
 
+use Exception;
+use iRAP\CoreLibs\ArrayLib;
+use iRAP\CoreLibs\MysqliLib;
+use mysqli;
+use mysqli_result;
 
 abstract class AbstractTable implements TableInterface
 {
     # Array of all the child instances that get created.
-    protected static $s_instances = array();
+    protected static array $s_instances = [];
 
-    protected $m_defaultSearchLimit = 999999999999999999;
+    protected int $m_defaultSearchLimit = 999999999999999999;
 
-    # Cache of loaded objects so we don't need to go and re-fetch them.
+    # Cache of loaded objects, so we don't need to go and re-fetch them.
     # This object needs to ensure we clear these when we update rows.
-    protected $m_objectCache = array();
-
+    protected array $m_objectCache = [];
 
     /**
      * Loads all of these objects from the database.
      * This also clears and fully loads the cache.
-     * @param void
-     * @return array
+     * @return AbstractTableRowObject[]
+     * @throws Exception
      */
-    public function loadAll()
+    public function loadAll(): array
     {
         $this->emptyCache();
-        $objects = array();
 
-        $query   = "SELECT * FROM `" . $this->getTableName() . "`";
-        $result  = $this->getDb()->query($query);
+        $query = "SELECT * FROM `" . $this->getTableName() . "`";
+        $result = $this->getDb()->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception('Error selecting all objects for loading.');
+        if ($result === FALSE) {
+            throw new Exception('Error selecting all objects for loading.');
         }
 
         return $this->convertMysqliResultToObjects($result);
     }
 
-
     /**
      * Loads a single object of this class's type from the database using the unique row_id
-     * @param int id - the id of the row in the datatabase table.
-     * @param bool useCache - optionally set to false to force a database lookup even if we have a
+     * @param int $id - the id of the row in the database table.
+     * @param bool $useCache - optionally set as false to force a database lookup even if we have a
      *                    cached value from a previous lookup.
      * @return AbstractTableRowObject - the loaded object.
+     * @throws NoSuchIdException
+     * @throws Exception
      */
-    public function load($id, $useCache=true)
+    public function load($id, bool $useCache = true): AbstractTableRowObject
     {
-        $objects = $this->loadIds(array($id), $useCache);
+        $objects = $this->loadIds([$id], $useCache);
 
-        if (count($objects) == 0)
-        {
-            $msg = 'There is no ' . $this->getTableName() .  ' object with id: ' . $id;
+        if (count($objects) == 0) {
+            $msg = 'There is no ' . $this->getTableName() . ' object with id: ' . $id;
             throw new NoSuchIdException($msg);
         }
 
-        return \iRAP\CoreLibs\ArrayLib::getFirstElement($objects);
+        return ArrayLib::getFirstElement($objects);
     }
-
 
     /**
      * Loads a number of objects of this class's type from the database using the provided array
      * list of IDs. If any of the objects are already in the cache, they are fetched from there.
      * NOTE: The returned array of objects is indexed by the IDs of the objects.
-     * @param array ids - the list of IDs of the objects we wish to load.
-     * @param bool useCache - optionally set to false to force a database lookup even if we have a
+     * @param array $ids - the list of IDs of the objects we wish to load.
+     * @param bool $useCache - optionally set as false to force a database lookup even if we have a
      *                        cached value from a previous lookup.
-     * @return array<AbstractTableRowObject> - list of the objects with the specified IDs indexed
+     * @return AbstractTableRowObject[] - list of the objects with the specified IDs indexed
      *                                         by the objects ID.
+     * @throws Exception
      */
-    public function loadIds(array $ids, $useCache=true)
+    public function loadIds(array $ids, bool $useCache = true): array
     {
-        $loadedObjects = array();
+        $loadedObjects = [];
         $constructor = $this->getRowObjectConstructorWrapper();
-        $idsToFetch = array();
+        $idsToFetch = [];
 
-        foreach ($ids as $id)
-        {
-            if (!isset($this->m_objectCache[$id]) || !$useCache)
-            {
+        foreach ($ids as $id) {
+            if (!isset($this->m_objectCache[$id]) || !$useCache) {
                 $idsToFetch[] = $id;
-            }
-            else
-            {
+            } else {
                 $loadedObjects[$id] = $this->m_objectCache[$id];
             }
         }
 
-        if (count($idsToFetch) > 0)
-        {
+        if (count($idsToFetch) > 0) {
             $db = $this->getDb();
-            $escapedIdsToFetch = \iRAP\CoreLibs\MysqliLib::escapeValues($idsToFetch, $db);
-            $idsToFetchWrapped = \iRAP\CoreLibs\ArrayLib::wrapElements($escapedIdsToFetch, "'");
+            $escapedIdsToFetch = MysqliLib::escapeValues($idsToFetch, $db);
+            $idsToFetchWrapped = ArrayLib::wrapElements($escapedIdsToFetch, "'");
 
             $query = "SELECT * FROM `" . $this->getTableName() . "` " .
-                     "WHERE `id` IN(" . implode(", ", $idsToFetchWrapped) . ")";
+                "WHERE `id` IN(" . implode(", ", $idsToFetchWrapped) . ")";
 
-            /* @var $result \mysqli_result */
+            /* @var $result mysqli_result|bool */
             $result = $db->query($query);
 
-            if ($result === FALSE)
-            {
-                throw new \Exception("Failed to select from table. " . $db->error);
+            if ($result === FALSE) {
+                throw new Exception("Failed to select from table. " . $db->error);
             }
 
-            $fieldInfoMap = array();
+            $fieldInfoMap = [];
 
-            for ($i=0; $i<$result->field_count; $i++)
-            {
+            for ($i = 0; $i < $result->field_count; $i++) {
                 $fieldInfo = $result->fetch_field_direct($i);
                 $fieldInfoMap[$fieldInfo->name] = $fieldInfo->type;
             }
 
-            while (($row = $result->fetch_assoc()) != null)
-            {
+            while (($row = $result->fetch_assoc()) != null) {
                 $object = $constructor($row, $fieldInfoMap);
                 $objectId = $row['id'];
                 $this->m_objectCache[$objectId] = $object;
@@ -132,56 +126,52 @@ abstract class AbstractTable implements TableInterface
         return $loadedObjects;
     }
 
-
     /**
      * Loads a range of data from the table.
      * It is important to note that offset is not tied to ID in any way.
-     * @param type $offset
-     * @param type $numElements
-     * @return array<AbstractTableRowObject>
+     * @param int $offset
+     * @param int $numElements
+     * @return AbstractTableRowObject[]
+     * @throws Exception
      */
-    public function loadRange($offset, $numElements)
+    public function loadRange(int $offset, int $numElements): array
     {
-        $query   = "SELECT * FROM `" . $this->getTableName() . "` " .
-                   "LIMIT " . $offset . "," . $numElements;
+        $query = "SELECT * FROM `" . $this->getTableName() . "` " .
+            "LIMIT " . $offset . "," . $numElements;
 
         $db = $this->getDb();
-        $result  = $db->query($query);
+        $result = $db->query($query);
 
-        if ($result === FALSE)
-        {
-           throw new \Exception('Error selecting all objects for loading. ' . $db->error);
+        if ($result === FALSE) {
+            throw new Exception('Error selecting all objects for loading. ' . $db->error);
         }
 
         return $this->convertMysqliResultToObjects($result);
     }
-
 
     /**
      * Load objects from the table that meet have all the attributes specified
      * in the provided wherePairs parameter.
      * @param array $wherePairs - column-name/value pairs that the object must have in order
      *                            to be fetched. the value in the pair may be an array to load
-     *                            any objects that have any one of those falues.
+     *                            any objects that have any one of those values.
      *                            For example:
-     *                              id => array(1,2,3) would load objects that have ID 1,2, or 3.
-     * @return array<AbstractTableRowObject>
-     * @throws \Exception
+     *                              id => [1,2,3] would load objects that have ID 1,2, or 3.
+     * @return AbstractTableRowObject[]
+     * @throws Exception
      */
-    public function loadWhereAnd(array $wherePairs)
+    public function loadWhereAnd(array $wherePairs): array
     {
         $db = $this->getDb();
         $query = $this->generateSelectWhereQuery($wherePairs, 'AND');
         $result = $db->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception("Failed to load objects, check your where parameters.");
+        if ($result === FALSE) {
+            throw new Exception("Failed to load objects, check your where parameters.");
         }
 
         return $this->convertMysqliResultToObjects($result);
     }
-
 
     /**
      * Load objects from the table that meet the specified WHERE statement.
@@ -194,254 +184,215 @@ abstract class AbstractTable implements TableInterface
      *                            For example:
      *                              "name = 'John Smith'" would result in "WHERE name = 'John Smith'"
      * @return array<AbstractTableRowObject>
-     * @throws \Exception
+     * @throws Exception
      */
-    public function loadWhereExplicit($where)
+    public function loadWhereExplicit(string $where): array
     {
         $db = $this->getDb();
-        $query = "SELECT * FROM `" . $this->getTableName() . "` WHERE ".$where;
+        $query = "SELECT * FROM `" . $this->getTableName() . "` WHERE " . $where;
         $result = $db->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception("Failed to load objects, check your where parameters.");
+        if ($result === FALSE) {
+            throw new Exception("Failed to load objects, check your where parameters.");
         }
 
         return $this->convertMysqliResultToObjects($result);
     }
 
     /**
-     * Load objects from the table that meet meet ANY of the attributes specified
+     * Load objects from the table that meet ANY of the attributes specified
      * in the provided wherePairs parameter.
      * @param array $wherePairs - column-name/value pairs that the object must have at least one of
      *                            in order to be fetched. the value in the pair may be an array to
-     *                            load any objects that have any one of those falues.
+     *                            load any objects that have any one of those values.
      *                            For example:
-     *                              id => array(1,2,3) would load objects that have ID 1,2, or 3.
-     * @return array<AbstractTableRowObject>
-     * @throws \Exception
+     *                              id => [1,2,3] would load objects that have ID 1,2, or 3.
+     * @return AbstractTableRowObject[]
+     * @throws Exception
      */
-    public function loadWhereOr(array $wherePairs)
+    public function loadWhereOr(array $wherePairs): array
     {
         $db = $this->getDb();
         $query = $this->generateSelectWhereQuery($wherePairs, 'OR');
         $result = $db->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception("Failed to load objects, check your where parameters.");
+        if ($result === FALSE) {
+            throw new Exception("Failed to load objects, check your where parameters.");
         }
 
         return $this->convertMysqliResultToObjects($result);
     }
 
-
     /**
      * Create a new object that represents a new row in the database.
      * @param array $row - name value pairs to create the object from.
      * @return AbstractTableRowObject
+     * @throws Exception
      */
-    public function create(array $row)
+    public function create(array $row): AbstractTableRowObject
     {
         $db = $this->getDb();
 
         $query = "INSERT INTO " . $this->getTableName() . " SET " .
-                \iRAP\CoreLibs\MysqliLib::generateQueryPairs($row, $db);
+            MysqliLib::generateQueryPairs($row, $db);
 
         $result = $db->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception("Insert query failed: " . $db->error);
+        if ($result === FALSE) {
+            throw new Exception("Insert query failed: " . $db->error);
         }
 
         $insertId = $db->insert_id;
-        $row['id'] = $insertId;
-        $constructor = $this->getRowObjectConstructorWrapper();
-        $object = $constructor($row);
-        $this->updateCache($object);
-        return $object;
+        return $this->load($insertId);
     }
-
 
     /**
      * Replace rows in a table.
      * WARNING - If they don't exist, then they will be inserted rather than throwing an error
      * or exception. If you just want to replace a single object, try using the update() method
      * instead.
-     * This only makes sense if the the primary or unique key is set in the input parameter.
+     * This only makes sense if the primary or unique key is set in the input parameter.
      * @param array $row - row of data to replace with.
      * @return mysqli_result
+     * @throws Exception
      */
-    public function replace(array $row)
+    public function replace(array $row): mysqli_result
     {
         $db = $this->getDb();
 
         $query = "REPLACE INTO " . $this->getTableName() . " SET " .
-                \iRAP\CoreLibs\MysqliLib::generateQueryPairs($row, $db);
+            MysqliLib::generateQueryPairs($row, $db);
 
         $result = $db->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception("replace query failed: " . $db->error);
+        if ($result === FALSE) {
+            throw new Exception("replace query failed: " . $db->error);
         }
 
         return $result;
     }
-
 
     /**
      * Update a row specified by the ID with the provided data.
      * @param int $id - the ID of the object being updated
      * @param array $row - the data to update the object with
      * @return AbstractTableRowObject
-     * @throws \Exception if query failed.
+     * @throws Exception if query failed.
      */
-    public function update($id, array $row)
+    public function update($id, array $row): AbstractTableRowObject
     {
         # This logic must not ever be changed to load the row object and then call update on that
-        # because it's update method will call this method and you will end up with a loop.
+        # because it's update method will call this method, and you will end up with a loop.
         $query =
             "UPDATE `" . $this->getTableName() . "` " .
-            "SET " . \iRAP\CoreLibs\MysqliLib::generateQueryPairs($row, $this->getDb()) . " " .
+            "SET " . MysqliLib::generateQueryPairs($row, $this->getDb()) . " " .
             "WHERE `id`='" . $id . "'";
 
         $result = $this->getDb()->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception("Failed to update row in " . $this->getTableName());
+        if ($result === FALSE) {
+            throw new Exception("Failed to update row in " . $this->getTableName());
         }
 
-        if (isset($this->m_objectCache[$id]))
-        {
+        if (isset($this->m_objectCache[$id])) {
             $existingObject = $this->getCachedObject($id);
             $existingArrayForm = $existingObject->getArrayForm();
             $newArrayForm = $existingArrayForm;
 
             # overwrite the existing data with the new.
-            foreach ($row as $column_name => $value)
-            {
+            foreach ($row as $column_name => $value) {
                 $newArrayForm[$column_name] = $value;
             }
 
             $objectConstructor = $this->getRowObjectConstructorWrapper();
             $updatedObject = $objectConstructor($newArrayForm);
             $this->updateCache($updatedObject);
-        }
-        else
-        {
-            # We don't have the object loaded into cache so we need to fetch it from the
+        } else {
+            # We don't have the object loaded into cache, so we need to fetch it from the
             # database in order to be able to return an object. This updates cache as well.
             # We also need to handle the event of the update being to change the ID.
-            if (isset($row['id']))
-            {
+            if (isset($row['id'])) {
                 $updatedObject = $this->load($row['id']);
-            }
-            else
-            {
+            } else {
                 $updatedObject = $this->load($id);
             }
         }
 
         # If we changed the object's ID, then we need to remove the old cached object.
-        if (isset($row['id']) && $row['id'] != $id)
-        {
+        if (isset($row['id']) && $row['id'] != $id) {
             $this->unsetCache($id);
         }
 
         return $updatedObject;
     }
 
-
     /**
-     * Removes the obejct from the mysql database.
-     * @TODO - have this method use the deleteIds() method which requires a different return type.
+     * Removes the object from the mysql database.
      * @param int $id - the ID of the object we wish to delete.
-     * @return mysqli_result
-     * @throws \Exception - if query failed, returning FALSE.
+     * @return bool
+     * @throws Exception - if query failed, returning FALSE.
      */
-    public function delete($id)
+    public function delete($id): bool
     {
-        $query = "DELETE FROM `" . $this->getTableName() . "` WHERE `id`='" . $id . "'";
-        $result = $this->getDb()->query($query);
-
-        if ($result === FALSE)
-        {
-            throw new \Exception('Failed to delete ' . $this->getTableName() .  ' with id: ' . $id);
-        }
-
-        $this->unsetCache($id);
-        return $result;
+        $result = $this->deleteIds([$id]);
+        return $result === 1;
     }
 
-
     /**
-     * Deletes objects that have the any of the specified IDs. This will not throw an error or
+     * Deletes objects that have any of the specified IDs. This will not throw an error or
      * exception if an object with one of the IDs specified does not exist.
      * This is a fast and cache-friendly operation.
      * @param array $ids - the list of IDs of the objects we wish to delete.
      * @return int - the number of objects deleted.
+     * @throws Exception
      */
-    public function deleteIds(array $ids)
+    public function deleteIds(array $ids): int
     {
         $db = $this->getDb();
-        $idsToDelete = \iRAP\CoreLibs\MysqliLib::escapeValues($ids, $db);
-        $wherePairs = array("id" => $idsToDelete);
+        $idsToDelete = MysqliLib::escapeValues($ids, $db);
+        $wherePairs = ["id" => $idsToDelete];
         $query = $this->generateDeleteWhereQuery($wherePairs, "AND");
         $result = $db->query($query);
 
-        if ($result == FALSE)
-        {
-            throw new \Exception("Failed to delete objects by ID.");
+        if ($result === FALSE) {
+            throw new Exception("Failed to delete objects by ID.");
         }
 
         # Remove these objects from our cache.
-        foreach ($ids as $objectId)
-        {
+        foreach ($ids as $objectId) {
             $this->unsetCache($objectId);
         }
 
         return $db->affected_rows;
     }
 
-
     /**
      *  Deletes all rows from the table by running TRUNCATE.
      * @param bool $inTransaction - set to true to run a slower query that won't implicitly commit
-     * @return type
+     * @return bool
      * @throws Exception
      */
-    public function deleteAll($inTransaction=false)
+    public function deleteAll(bool $inTransaction = false): bool
     {
-        if ($inTransaction)
-        {
+        if ($inTransaction) {
             # This is much slower but can be run without inside a transaction
             $query = "DELETE FROM `" . $this->getTableName() . "`";
-            $result = $this->getDb()->query($query);
 
-            if ($result === FALSE)
-            {
-                throw new \Exception('Failed to drop table: ' . $this->getTableName());
-            }
-        }
-        else
-        {
+        } else {
             # This is much faster, but will cause an implicit commit.
             $query = "TRUNCATE `" . $this->getTableName() . "`";
-            $result = $this->getDb()->query($query);
 
-            if ($result === FALSE)
-            {
-                throw new \Exception('Failed to drop table: ' . $this->getTableName());
-            }
+        }
+
+        $result = $this->getDb()->query($query);
+
+        if ($result === FALSE) {
+            throw new Exception('Failed to drop table: ' . $this->getTableName());
         }
 
         $this->emptyCache();
         return $result;
     }
-
 
     /**
      * Delete rows from the table that meet have all the attributes specified
@@ -454,35 +405,32 @@ abstract class AbstractTable implements TableInterface
      *                            to be deleted. the value in the pair may be an array to delete
      *                            any objects that have any one of those values.
      *                            For example:
-     *                              id => array(1,2,3) would delete objects that have ID 1,2, or 3.
-     * @param bool $clearCache - optionally set to false to not have this operation clear the
+     *                              id => [1,2,3] would delete objects that have ID 1,2, or 3.
+     * @param bool $clearCache - optionally set as false to not have this operation clear the
      *                           cache afterwards.
      * @return int - the number of rows/objects that were deleted.
-     * @throws \Exception
+     * @throws Exception
      */
-    public function deleteWhereAnd(array $wherePairs, $clearCache=true)
+    public function deleteWhereAnd(array $wherePairs, bool $clearCache = true): int
     {
         $db = $this->getDb();
         $query = $this->generateDeleteWhereQuery($wherePairs, "AND");
-        /* @var $result \mysqli_result */
+        /* @var $result mysqli_result|bool */
         $result = $db->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception("Failed to delete objects, check your where parameters.");
+        if ($result === FALSE) {
+            throw new Exception("Failed to delete objects, check your where parameters.");
         }
 
-        if ($clearCache)
-        {
+        if ($clearCache) {
             $this->emptyCache();
         }
 
-        return mysqli_affected_rows($db);
+        return $db->affected_rows;
     }
 
-
     /**
-     * Delete rows from the table that meet meet ANY of the attributes specified
+     * Delete rows from the table that meet ANY of the attributes specified
      * in the provided wherePairs parameter.
      * WARNING - by default this will clear your cache. You can manually set clearCache to false
      *           if you know what you are doing, but you may wish to delete by ID instead which
@@ -490,97 +438,84 @@ abstract class AbstractTable implements TableInterface
      *           from memory when they were previously deleted using one of these methods.
      * @param array $wherePairs - column-name/value pairs that the object must have at least one of
      *                            in order to be fetched. the value in the pair may be an array to
-     *                            delete any objects that have any one of those falues.
+     *                            delete any objects that have any one of those values.
      *                            For example:
-     *                              id => array(1,2,3) would delete objects that have ID 1,2, or 3.
-     * @param bool $clearCache - optionally set to false to not have this operation clear the
+     *                              id => [1,2,3] would delete objects that have ID 1,2, or 3.
+     * @param bool $clearCache - optionally set as false to not have this operation clear the
      *                           cache afterwards.
-     * @return array<AbstractTableRowObject>
-     * @throws \Exception
+     * @return int|string
+     * @throws Exception
      */
-    public function deleteWhereOr(array $wherePairs, $clearCache=true)
+    public function deleteWhereOr(array $wherePairs, bool $clearCache = true)
     {
         $db = $this->getDb();
         $query = $this->generateDeleteWhereQuery($wherePairs, "OR");
         $result = $db->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception("Failed to delete objects, check your where parameters.");
+        if ($result === FALSE) {
+            throw new Exception("Failed to delete objects, check your where parameters.");
         }
 
-        if ($clearCache)
-        {
+        if ($clearCache) {
             $this->emptyCache();
         }
 
-        return mysqli_affected_rows($db);
+        return $db->affected_rows;
     }
-
 
     /**
      * Search the table for items and return any matches as objects. This method is
      * required by the TableHandlerInterface
      * @param array $parameters
-     * @return type
-     * @throws \Exception
+     * @return array
+     * @throws Exception
      */
-    public function search(array $parameters)
+    public function search(array $parameters): array
     {
         return $this->advancedSearch($parameters);
     }
-
 
     /**
      * Search the table for items and return any matches as objects. This method is
      * required by the TableHandlerInterface
      * @param array $parameters - these may not be sanitized already.
-     * @return type
-     * @throws \Exception
+     * @param array $whereClauses
+     * @return array
+     * @throws Exception
      */
-    public function advancedSearch(array $parameters, $whereClauses=array())
+    public function advancedSearch(array $parameters, array $whereClauses = []): array
     {
-        $objects = array();
+        $objects = [];
 
-        if (isset($parameters['start_id']))
-        {
+        if (isset($parameters['start_id'])) {
             $whereClauses[] = "`id` >= '" . intval($parameters['start_id']) . "'";
         }
 
-        if (isset($parameters['end_id']))
-        {
+        if (isset($parameters['end_id'])) {
             $whereClauses[] = "`id` <= '" . intval($parameters['end_id']) . "'";
         }
 
-        if (isset($parameters['in_id']))
-        {
-            if (is_array($parameters['in_id']))
-            {
-                $possibleIds = array();
+        if (isset($parameters['in_id'])) {
+            if (is_array($parameters['in_id'])) {
+                $possibleIds = [];
                 $idArray = $parameters['in_id'];
 
-                foreach ($idArray as $idInput)
-                {
+                foreach ($idArray as $idInput) {
                     $possibleIds[] = intval($idInput);
                 }
 
                 $whereClauses[] = "`id` IN (" . implode(",", $possibleIds) . ")";
-            }
-            else
-            {
-                throw new \Exception('"in_id" needs to be an array of IDs ');
+            } else {
+                throw new Exception('"in_id" needs to be an array of IDs ');
             }
         }
 
         $offset = isset($parameters['offset']) ? intval($parameters['offset']) : 0;
         $limit = (isset($parameters['limit'])) ? intval($parameters['limit']) : $this->m_defaultSearchLimit;
 
-        if (count($whereClauses) > 0)
-        {
+        if (count($whereClauses) > 0) {
             $whereClause = " WHERE " . implode(" AND ", $whereClauses);
-        }
-        else
-        {
+        } else {
             $whereClause = "";
         }
 
@@ -589,8 +524,7 @@ abstract class AbstractTable implements TableInterface
             "FROM `" . $this->getTableName() . "` " . $whereClause . " ";
 
         // Add the order by clause if required
-        if (isset($parameters['order_column']) && isset($parameters['order_direction']))
-        {
+        if (isset($parameters['order_column']) && isset($parameters['order_direction'])) {
             $query .= "ORDER BY {$parameters['order_column']} {$parameters['order_direction']} ";
         }
 
@@ -599,17 +533,14 @@ abstract class AbstractTable implements TableInterface
 
         $result = $this->getDb()->query($query);
 
-        if ($result === FALSE)
-        {
-            throw new \Exception('Error selecting all objects.');
+        if ($result === FALSE) {
+            throw new Exception('Error selecting all objects.');
         }
 
         $constructor = $this->getRowObjectConstructorWrapper();
 
-        if ($result->num_rows > 0)
-        {
-            while (($row = $result->fetch_assoc()) != null)
-            {
+        if ($result->num_rows > 0) {
+            while (($row = $result->fetch_assoc()) != null) {
                 $objects[] = $constructor($row);
             }
         }
@@ -617,68 +548,58 @@ abstract class AbstractTable implements TableInterface
         return $objects;
     }
 
-
     /**
      * Fetch the single instance of this object.
      * @return AbstractTable
      */
-    public static function getInstance()
+    public static function getInstance(): AbstractTable
     {
         $className = get_called_class();
 
-        if (!isset(self::$s_instances[$className]))
-        {
+        if (!isset(self::$s_instances[$className])) {
             self::$s_instances[$className] = new $className();
         }
 
         return self::$s_instances[$className];
     }
 
-
     /**
      * Get the user to specify fields that may be null in the database and thus don't have
      * to be set when creating this object.
-     * @return array<string> - array of column names that may be null.
+     * @return string[] - array of column names that may be null.
      */
-    abstract public function getFieldsThatAllowNull();
-
+    abstract public function getFieldsThatAllowNull(): array;
 
     /**
      * Get the user to specify fields that have default values and thus don't have
      * to be set when creating this object.
-     * @return array<string> - array of column names that may be null.
+     * @return string[] - array of column names that may be null.
      */
-    abstract public function getFieldsThatHaveDefaults();
-
+    abstract public function getFieldsThatHaveDefaults(): array;
 
     /**
      * Return an inline function that takes the $row array and will call the relevant row object's
      * constructor with it.
-     * @return Callable - the callable must take the data row as its only parameter and return
+     * @return callable - the callable must take the data row as its only parameter and return
      *                     the created object
      *                     e.g. $returnObj = function($row){ return new rowObject($row); }
      */
-    public function getRowObjectConstructorWrapper()
+    public function getRowObjectConstructorWrapper(): callable
     {
         $objectClassName = $this->getObjectClassName();
 
-        $constructor = function($row, $row_field_types=null) use($objectClassName){
+        return function ($row, $row_field_types = null) use ($objectClassName) {
             return new $objectClassName($row, $row_field_types);
         };
-
-        return $constructor;
     }
-
 
     public abstract function getObjectClassName();
 
-
     /**
      * Return the database connection to the database that has this table.
-     * @return \mysqli
+     * @return mysqli
      */
-    public abstract function getDb();
-
+    public abstract function getDb(): mysqli;
 
     /**
      * Remove the cache entry for an object.
@@ -686,72 +607,65 @@ abstract class AbstractTable implements TableInterface
      * This will not throw exception/error if id doesn't exist.
      * @param int $objectId - the ID of the object we wish to clear the cache of.
      */
-    public function unsetCache($objectId)
+    public function unsetCache(int $objectId)
     {
         unset($this->m_objectCache[$objectId]);
     }
-
 
     /**
      * Completely empty the cache. Do this if a table is emptied etc.
      */
     public function emptyCache()
     {
-        $this->m_objectCache = array();
+        $this->m_objectCache = [];
     }
-
 
     /**
      * Fetch an object from our cache.
      * @param int $id - the id of the row the object represents.
      * @return AbstractTableRowObject
+     * @throws Exception
      */
-    protected function getCachedObject($id)
+    protected function getCachedObject(int $id): AbstractTableRowObject
     {
-        if (!isset($this->m_objectCache[$id]))
-        {
-            throw new \Exception("There is no cached object");
+        if (!isset($this->m_objectCache[$id])) {
+            throw new Exception("There is no cached object");
         }
 
         return $this->m_objectCache[$id];
     }
 
-
     /**
      * Update our cache with the provided object.
      * Note that if you simply changed the object's ID, you will need to call unsetCache() on
      * the original ID.
-     * @param \iRAP\MysqlObjects\AbstractTableRowObject $object
+     * @param AbstractTableRowObject $object
      */
     protected function updateCache(AbstractTableRowObject $object)
     {
         $this->m_objectCache[$object->get_id()] = $object;
     }
 
-
     /**
      * Helper function that converts a query result into a collection of the row objects.
-     * @param \mysqli_result $result
-     * @return array<AbstractTableRowObject>
+     * @param mysqli_result $result
+     * @return AbstractTableRowObject[]
      */
-    protected function convertMysqliResultToObjects(\mysqli_result $result)
+    protected function convertMysqliResultToObjects(mysqli_result $result): array
     {
-        $objects = array();
+        $objects = [];
 
-        if ($result->num_rows > 0)
-        {
+        if ($result->num_rows > 0) {
             $constructor = $this->getRowObjectConstructorWrapper();
 
-            $fieldInfoMap = array();
+            $fieldInfoMap = [];
 
-            for ($i=0; $i<$result->field_count; $i++)
-            {
+            for ($i = 0; $i < $result->field_count; $i++) {
                 $fieldInfo = $result->fetch_field_direct($i);
                 $fieldInfoMap[$fieldInfo->name] = $fieldInfo->type;
             }
 
-            while (($row = $result->fetch_assoc()) != null)
-            {
+            while (($row = $result->fetch_assoc()) != null) {
                 $loadedObject = $constructor($row, $fieldInfoMap);
                 $this->updateCache($loadedObject);
                 $objects[] = $loadedObject;
@@ -761,7 +675,6 @@ abstract class AbstractTable implements TableInterface
         return $objects;
     }
 
-
     /**
      * Helper function that generates the raw SQL string to send to the database in order to
      * load objects that have any/all (depending on $conjunction) of the specified attributes.
@@ -770,16 +683,13 @@ abstract class AbstractTable implements TableInterface
      * @param string $conjunction - 'AND' or 'OR' which changes whether the object needs all or
      *                              any of the specified attributes in order to be loaded.
      * @return string - the raw sql string to send to the database.
-     * @throws \Exception - invalid $conjunction specified that was not 'OR' or 'AND'
+     * @throws Exception - invalid $conjunction specified that was not 'OR' or 'AND'
      */
-    protected function generateSelectWhereQuery(array $wherePairs, $conjunction)
+    protected function generateSelectWhereQuery(array $wherePairs, string $conjunction): string
     {
-        $query = "SELECT * FROM `" . $this->getTableName() . "` " .
-                $this->generateWhereClause($wherePairs, $conjunction);
-
-        return $query;
+        return "SELECT * FROM `" . $this->getTableName() . "` " .
+            $this->generateWhereClause($wherePairs, $conjunction);
     }
-
 
     /**
      * Helper function that generates the raw SQL string to send to the database in order to
@@ -789,16 +699,13 @@ abstract class AbstractTable implements TableInterface
      * @param string $conjunction - 'AND' or 'OR' which changes whether the object needs all or
      *                              any of the specified attributes in order to be loaded.
      * @return string - the raw sql string to send to the database.
-     * @throws \Exception - invalid $conjunction specified that was not 'OR' or 'AND'
+     * @throws Exception - invalid $conjunction specified that was not 'OR' or 'AND'
      */
-    protected function generateDeleteWhereQuery(array $wherePairs, $conjunction)
+    protected function generateDeleteWhereQuery(array $wherePairs, string $conjunction): string
     {
-        $query = "DELETE FROM `" . $this->getTableName() . "` " .
-                $this->generateWhereClause($wherePairs, $conjunction);
-
-        return $query;
+        return "DELETE FROM `" . $this->getTableName() . "` " .
+            $this->generateWhereClause($wherePairs, $conjunction);
     }
-
 
     /**
      * Generate the "where" part of a query based on name/value pairs and the provided conjunction
@@ -806,47 +713,39 @@ abstract class AbstractTable implements TableInterface
      *                            array list of values for WHERE IN().
      * @param string $conjunction - one of "AND" or "OR" for if all/any of criteria need to be met
      * @return string - the where clause of a query such as "WHERE `id`='3'"
+     * @throws Exception
      */
-    protected function generateWhereClause($wherePairs, $conjunction)
+    protected function generateWhereClause(array $wherePairs, string $conjunction): string
     {
         $whereClause = "";
         $upperConjunction = strtoupper($conjunction);
-        $possibleConjunctions = array("AND", "OR");
+        $possibleConjunctions = ["AND", "OR"];
 
-        if (!in_array($upperConjunction, $possibleConjunctions))
-        {
-            throw new \Exception("Invalid conjunction: " . $upperConjunction);
+        if (!in_array($upperConjunction, $possibleConjunctions)) {
+            throw new Exception("Invalid conjunction: " . $upperConjunction);
         }
 
-        $whereStrings = array();
+        $whereStrings = [];
 
-        foreach ($wherePairs as $attribute => $searchValue)
-        {
+        foreach ($wherePairs as $attribute => $searchValue) {
             $whereString = "`" . $attribute . "` ";
 
-            if (is_array($searchValue))
-            {
-                if (count($searchValue) === 0)
-                {
+            if (is_array($searchValue)) {
+                if (count($searchValue) === 0) {
                     $whereString = "FALSE";
+                } else {
+                    $escapedValues = MysqliLib::escapeValues($searchValue, $this->getDb());
+                    $searchValueWrapped = ArrayLib::wrapElements($escapedValues, "'");
+                    $whereString .= " IN(" . implode(",", $searchValueWrapped) . ")";
                 }
-                else
-                {
-                    $escapedValues = \iRAP\CoreLibs\MysqliLib::escapeValues($searchValue, $this->getDb());
-                    $searchValueWrapped = \iRAP\CoreLibs\ArrayLib::wrapElements($escapedValues, "'");
-                    $whereString .= " IN(" . implode(",", $searchValueWrapped)  . ")";
-                }
-            }
-            else
-            {
+            } else {
                 $whereString .= " = '" . $this->getDb()->escape_string($searchValue) . "'";
             }
 
             $whereStrings[] = $whereString;
         }
 
-        if (count($whereStrings) > 0)
-        {
+        if (count($whereStrings) > 0) {
             $whereClause = "WHERE " . implode(" " . $upperConjunction . " ", $whereStrings);
         }
 

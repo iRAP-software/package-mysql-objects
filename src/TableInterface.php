@@ -2,14 +2,17 @@
 
 /**
  * The table handler is an object for interfacing with a table rather than a row.
- * This can be returned from a ModelObject from a static method. Thus if the programmer wants
+ * This can be returned from a ModelObject from a static method. Thus, if the programmer wants
  * to fetch a resource using the ModelObject definition, they would do:
  * MyModelName::getTableHandler()->load($id);
- * This is allows the developer to treat the model as an object that represents a row in the table
+ * This allows the developer to treat the model as an object that represents a row in the table
  */
 
 namespace iRAP\MysqlObjects;
 
+
+use Exception;
+use mysqli;
 
 interface TableInterface
 {
@@ -17,115 +20,103 @@ interface TableInterface
      * Return the singleton instance of this object.
      */
     public static function getInstance();
-    
-    
+
     /**
      * Return the name of this table.
      */
     public function getTableName();
-    
-    
+
     /**
      * Get a connection to the database.
-     * @return \mysqli
+     * @return mysqli
      */
-    public function getDb();
-    
-    
+    public function getDb(): mysqli;
+
     /**
-     * Removes the obeject from the mysql database. 
+     * Removes the object from the mysql database.
      * @return void
      */
     public function delete($id);
-    
-    
+
     /**
      * Deletes all rows from the table by running TRUNCATE.
      */
     public function deleteAll();
-    
-    
+
     /**
      * Loads all of these objects from the database.
-     * @param void
-     * @return 
+     * @return AbstractTableRowObject[]
      */
-    public function loadAll();
-    
-    
+    public function loadAll(): array;
+
     /**
-     * Loads a single object of this class's type from the database using the unique ID of the row. 
-     * @param int id - the id of the row in the datatabase table.
-     * @param bool useCache - optionally set to false to force a database lookup even if we have a
+     * Loads a single object of this class's type from the database using the unique ID of the row.
+     * @param $id - the id of the row in the database table.
+     * @param bool $useCache - optionally set as false to force a database lookup even if we have a
      *                    cached value from a previous lookup.
      * @return AbstractTableRowObject - the loaded object.
      */
-    public function load($id, $useCache=true);
-    
-    
+    public function load($id, bool $useCache = true): AbstractTableRowObject;
+
     /**
      * Loads a range of data from the table.
-     * It is important to note that offset is not tied to ID in any way. 
-     * @param type $offset
-     * @param type $numElements
-     * @return array<AbstractTableRowObject>
+     * It is important to note that offset is not tied to ID in any way.
+     * @param int $offset
+     * @param int $numElements
+     * @return AbstractTableRowObject[]
      */
-    public function loadRange($offset, $numElements);
-    
-    
+    public function loadRange(int $offset, int $numElements): array;
+
     /**
      * Create a new row with unfiltered data.
+     * @param array $row
      * @return AbstractTableRowObject
      */
-    public function create(array $inputs);
-    
-    
+    public function create(array $row): AbstractTableRowObject;
+
     /**
      * Replace a row by id.
      */
     public function replace(array $row);
-    
-    
+
     /**
      * Update a specified row with inputs
+     * @param $id
+     * @param array $row
      * @return AbstractTableRowObject
      */
-    public function update($id, array $row);
-    
-    
+    public function update($id, array $row): AbstractTableRowObject;
+
     /**
      * Search the table for items and return any matches as objects.
      * @param array $parameters
-     * @return type
-     * @throws \Exception
+     * @return AbstractTableRowObject[]
+     * @throws Exception
      */
-    public function search(array $unfilteredParameters);
-    
-    
+    public function search(array $parameters): array;
+
     /**
      * Take a given array of USER PROVIDED data and validate it.
      * This is where you would check that the provided date is the correct type such as an int
      * instead of a string, and possibly run more advanced logic to ensure a date was in UK format
      * instead of american format
-     * WARNING - Do NOT perform mysqli escaping here as that is performed at the last possible 
-     * moment in the save method. 
-     * This is a good point to throw exceptions if someone has provided  a string when expecting a 
+     * WARNING - Do NOT perform mysqli escaping here as that is performed at the last possible
+     * moment in the save method.
+     * This is a good point to throw exceptions if someone has provided  a string when expecting a
      * boolean etc.
      * @return array - the validated inputs
      */
-    public function validateInputs(Array $data);
-    
-    
+    public function validateInputs(array $data): array;
+
     /**
      * List the fields that allow null values
-     * @return array<string> - array of column names.
+     * @return string[] - array of column names.
      */
-    public function getFieldsThatAllowNull();
-    
-    
+    public function getFieldsThatAllowNull(): array;
+
     /**
      * List the fields that have default values.
-     * @return array<string> - array of column names.
+     * @return string[] - array of column names.
      */
-    public function getFieldsThatHaveDefaults();
+    public function getFieldsThatHaveDefaults(): array;
 }

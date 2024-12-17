@@ -2,21 +2,28 @@
     "name": "irap/mysql-objects",
     "type": "library",
     "description": "Package for rapidly developing models that represent mysql tables. Tables must have an id field.",
-    "keywords": ["mysql", "mysqli","models"],
-    "homepage": "http://www.irap.org/",
+    "keywords": ["mysql", "mysqli", "models"],
+    "homepage": "https://www.irap.org/",
     "license": "none",
     "authors": [
         {
             "name": "Stuart Page",
             "email": "stuart.page@irap.org",
-            "homepage": "http://www.irap.org/",
+            "homepage": "https://www.irap.org/",
+            "role": "Developer"
+        },
+        {
+            "name": "Samrat Rai",
+            "email": "samrat.rai@irap.org",
+            "homepage": "https://www.irap.org/",
             "role": "Developer"
         }
     ],
     "require": {
-        "php": ">=7.0.0",
+        "php": ">=7.4.0",
         "irap/core-libs": "1.1.*",
-        "ramsey/uuid": "4.*"
+        "ramsey/uuid": "4.*",
+        "ext-mysqli": "*"
     },
     "autoload": {
         "psr-4": {
