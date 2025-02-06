@@ -20,8 +20,8 @@
         }
     ],
     "require": {
-        "php": ">=7.4.0",
-        "irap/core-libs": "1.1.*",
+        "php": ">=8.0.0",
+        "irap/core-libs": "1.2.*",
         "ramsey/uuid": "4.*",
         "ext-mysqli": "*"
     },
