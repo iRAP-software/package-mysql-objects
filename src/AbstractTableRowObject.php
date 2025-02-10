@@ -100,7 +100,10 @@ abstract class AbstractTableRowObject
      *                                 types, refer to http://bit.ly/2af5tyx
      * @throws Exception
      */
-    protected function initializeFromArray(array $row, array $row_field_types = null)
+    protected function initializeFromArray(
+        array       $row,
+        array|null  $row_field_types = null
+    )
     {
         $intFieldTypes = [
             1, // tinyint,
