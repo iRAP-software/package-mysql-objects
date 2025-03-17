@@ -12,7 +12,7 @@ use Exception;
 
 abstract class AbstractTableRowObject
 {
-    protected int $m_id;
+    protected $m_id;
 
     /**
      * Replace the current object.
@@ -204,7 +204,7 @@ abstract class AbstractTableRowObject
     }
 
     # Accessors
-    public function get_id(): int
+    public function get_id()
     {
         return $this->m_id;
     }
